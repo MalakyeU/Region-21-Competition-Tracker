@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Region 21 Event Tracker</title>
+    <meta name="description" content="Interactive map of USA Climbing Youth Region 21 (Northern California & Northern Nevada) competitions for the 2026-2027 season, plus gyms that could host future events.">
+    <meta property="og:title" content="Region 21 Event Tracker">
+    <meta property="og:description" content="USA Climbing Youth Region 21 competition map — dates, distances, info sheets, and potential host gyms.">
+    <meta property="og:type" content="website">
+    <meta name="theme-color" content="#0f172a">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧗</text></svg>">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    
+    <style>
+        #map {
+            height: 100%;
+            width: 100%;
+            z-index: 10;
+        }
+        
+        /* Custom scrollbar for dark theme */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #475569; 
+        }
+
+        /* Darken Leaflet popups to match */
+        .leaflet-popup-content-wrapper {
+            background-color: #1e293b;
+            color: #f8fafc;
+            border-radius: 0.75rem;
+            border: 1px solid #334155;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        .leaflet-popup-content { margin: 14px 16px; }
+        .leaflet-popup-tip {
+            background-color: #1e293b;
+            border-bottom: 1px solid #334155;
+            border-right: 1px solid #334155;
+        }
+        .leaflet-container a.leaflet-popup-close-button {
+            color: #94a3b8;
+        }
+
+        /* USAC region labels (vector overlay) */
+        .region-label { background: none; border: none; }
+        .region-label span {
+            display: inline-block;
+            white-space: nowrap;
+            transform: translate(-50%, -50%);
+            font: 700 13px/1 ui-sans-serif, system-ui, sans-serif;
+            letter-spacing: 0.18em;
+            color: rgba(255,255,255,0.85);
+            text-shadow: 0 0 6px rgba(0,0,0,0.9);
+        }
+        .region-label.primary span { font-size: 16px; color: #ffffff; }
+
+        /* Home pin */
+        .home-pin { background: none; border: none; }
+        .home-pin .bubble {
+            width: 34px; height: 34px; border-radius: 9999px;
+            background: #f8fafc; border: 3px solid #f59e0b;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 0 0 4px rgba(245,158,11,0.25), 0 4px 12px rgba(0,0,0,0.6);
+        }
+
+        /* Range sliders */
+        input[type=range] { accent-color: #4ade80; }
+
+        /* Potential host gym pin (climbing-hold icon in a rounded square) */
+        .gym-pin { background: none; border: none; }
+        .gym-badge {
+            width: 22px; height: 22px; border-radius: 6px;
+            background: #0f172a; border: 1.5px solid #22d3ee;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.6);
+            opacity: 0.9; transition: transform 0.15s;
+        }
+        .gym-pin:hover .gym-badge { transform: scale(1.2); opacity: 1; }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 h-screen h-[100dvh] w-screen overflow-hidden flex flex-col md:flex-row font-sans">
+
+    <!-- Sidebar Section -->
+    <aside class="w-full md:w-1/3 lg:w-1/4 h-1/2 md:h-full bg-slate-900 flex flex-col border-r border-slate-800 shadow-2xl z-20">
+        
+        <!-- Header & Legend -->
+        <div class="p-5 border-b border-slate-800 bg-slate-950">
+            <h1 class="text-2xl font-bold tracking-tight text-white mb-1">Region 21 Season</h1>
+            <p class="text-sm text-slate-400 mb-1">2026-2027 Event Timeline · <span id="today-label"></span></p>
+            <a href="https://usaclimbing.org/compete/region-21/" target="_blank" rel="noopener"
+               class="inline-block text-xs text-sky-300 hover:text-sky-200 underline underline-offset-2 mb-4">USAC Region 21 page ↗</a>
+            
+            <!-- Custom Legend -->
+            <div class="text-xs text-slate-400 font-medium bg-slate-900 p-2 rounded-md border border-slate-800 space-y-2">
+                <div class="flex items-center gap-2">
+                    <span>Soonest</span>
+                    <div class="flex-1 h-2 rounded-full" style="background: linear-gradient(90deg, hsl(120,75%,50%), hsl(60,85%,50%), hsl(0,80%,55%));"></div>
+                    <span>Farthest</span>
+                </div>
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <div class="w-3 h-3 rounded-full border border-slate-400" style="background-color: #475569;"></div>
+                        <span>Past / today</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <div class="w-3.5 h-3.5 rounded-full border-2 border-amber-300 bg-slate-700"></div>
+                        <span>Championship</span>
+                    </div>
+                    <div class="flex items-center gap-1">
+                        <span>🏠</span><span>Home</span>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <div class="gym-badge" style="width:16px;height:16px;border-radius:4px;">
+                        <svg width="9" height="9" viewBox="0 0 24 24" fill="#22d3ee"><path d="M7.5 4.5c2.6-1.9 6.6-1.6 9.4.4 2.9 2.1 4.3 5.6 3 8.8-1.1 2.8-3.5 3.3-5.4 4.9-1.8 1.6-2.6 3.9-5.3 3.9-3.3 0-6-2.9-6.6-6.6-.6-4 1.9-9.5 4.9-11.4z"/></svg>
+                    </div>
+                    <span>Gym not hosting this season (potential host)</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="p-4 border-b border-slate-800 bg-slate-950/60 space-y-4 text-sm">
+            <!-- Discipline -->
+            <div>
+                <div class="text-xs uppercase tracking-wider text-slate-500 font-semibold mb-2">Discipline</div>
+                <div id="discipline-filter" class="grid grid-cols-3 gap-1 bg-slate-900 p-1 rounded-lg border border-slate-800">
+                    <button data-value="all" class="disc-btn rounded-md py-1.5 text-xs font-semibold transition-colors">All</button>
+                    <button data-value="Boulder" class="disc-btn rounded-md py-1.5 text-xs font-semibold transition-colors">Boulder</button>
+                    <button data-value="Lead/TR" class="disc-btn rounded-md py-1.5 text-xs font-semibold transition-colors">Lead/TR</button>
+                </div>
+            </div>
+
+            <!-- Distance -->
+            <div>
+                <div class="flex justify-between text-xs mb-1">
+                    <span class="uppercase tracking-wider text-slate-500 font-semibold">Max distance from home</span>
+                    <span id="distance-label" class="text-slate-200 font-semibold"></span>
+                </div>
+                <input id="distance-filter" type="range" min="25" max="300" step="5" value="300" class="w-full">
+            </div>
+
+            <!-- Time from now -->
+            <div>
+                <div class="flex justify-between text-xs mb-1">
+                    <span class="uppercase tracking-wider text-slate-500 font-semibold">Happening within</span>
+                    <span id="time-label" class="text-slate-200 font-semibold"></span>
+                </div>
+                <input id="time-filter" type="range" min="7" max="240" step="1" value="240" class="w-full">
+            </div>
+
+            <!-- Toggles -->
+            <div class="flex flex-wrap gap-x-4 gap-y-2 text-xs text-slate-300">
+                <label class="flex items-center gap-2 cursor-pointer">
+                    <input id="show-past" type="checkbox" checked class="accent-slate-400"> Show past events
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                    <input id="show-regions" type="checkbox" checked class="accent-slate-400"> USAC region borders
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                    <input id="show-gyms" type="checkbox" checked class="accent-cyan-400"> Potential host gyms (<span id="gym-count">0</span>)
+                </label>
+            </div>
+            <div class="flex items-center gap-2 text-xs text-slate-400">
+                <span>Border opacity</span>
+                <input id="regions-opacity" type="range" min="0.15" max="1" step="0.05" value="0.85" class="flex-1">
+            </div>
+            <p id="regions-status" class="text-[11px] text-slate-500 hidden"></p>
+
+            <div class="flex justify-between items-center text-xs text-slate-500">
+                <span id="result-count"></span>
+                <button id="reset-filters" class="text-slate-300 hover:text-white underline underline-offset-2">Reset filters</button>
+            </div>
+        </div>
+        
+        <!-- Event List -->
+        <div id="event-list" class="flex-1 overflow-y-auto p-4 space-y-3">
+            <!-- Cards injected via JS -->
+        </div>
+    </aside>
+
+    <!-- Map Section -->
+    <main class="w-full md:w-2/3 lg:w-3/4 h-1/2 md:h-full relative">
+        <div id="map"></div>
+    </main>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <!-- TopoJSON client (for crisp vector region borders built from US county shapes) -->
+    <script src="https://cdn.jsdelivr.net/npm/topojson-client@3"></script>
+    
+    <script>
+        // 1. Event data — sourced from the official "Region 21 2026-2027 Season Events" sheet
+        //    embedded on https://usaclimbing.org/compete/region-21/
+        //    infoUrl: official info sheet (Google Doc) when posted; "" = not posted yet.
+        //    Info sheets get posted ~2-3 weeks before each event — paste new links in as they appear.
+        const REGION_PAGE_URL = 'https://usaclimbing.org/compete/region-21/';
+        const eventsData = [
+            { date: "10/18/26", discipline: "Boulder", type: "QE", gym: "Session Climbing", location: "965 South A St, Santa Rosa, CA", lat: 38.4270, lng: -122.7120,
+              infoUrl: "https://docs.google.com/document/d/e/2PACX-1vQuEmrx_IzNs1MNGpNjYEc5cr1sLt0qZShmrNtqRUO_PxCFj4O6bVsnfpVGGBrMHthV0hFGpQJOuWvl/pub",
+              reg: "Fee $75 · Registration closed Thu Oct 15" },
+            { date: "10/24/26", discipline: "Lead/TR", type: "QE", gym: "Movement Belmont", location: "100 El Camino Real, Belmont, CA", lat: 37.5255, lng: -122.2882,
+              infoUrl: "https://docs.google.com/document/d/e/2PACX-1vQ0MPfUFi1FWry0hf0kXUsAwx_kgt6pGeWDhuZ-rQUzAAat1-U9y067FGPa8WgOp5bsRvK_pcniFAW8/pub",
+              reg: "Fee $80 · Registration closes Wed Oct 21, 12:00pm MT" },
+            { date: "11/7/26", discipline: "Boulder", type: "QE", gym: "Mesa Rim Reno", location: "970 Harvard Way, Reno, NV", lat: 39.4990, lng: -119.7880,
+              infoUrl: "https://docs.google.com/document/d/e/2PACX-1vRKflEzZV3C4XPUOWsiwsP02qstViNk1wiDNnSj2mPIP1NzyLsRaySfjI4L0K8fbIvNamOQt_OU2eSS/pub",
+              reg: "Fee $75 · Registration opens Wed Oct 21, 6:00pm MT · closes Wed Nov 4, 12:00pm MT" },
+            { date: "11/14/26", dateLabel: "11/14 – 11/15/26", discipline: "Boulder", type: "QE", gym: "Blue Granite Climbing", location: "South Lake Tahoe, CA", lat: 38.9332, lng: -119.9843, infoUrl: "" },
+            { date: "11/21/26", discipline: "Lead/TR", type: "QE", gym: "Granite Arch Climbing Center", location: "Rancho Cordova, CA", lat: 38.5891, lng: -121.3027, infoUrl: "" },
+            { date: "12/5/26", discipline: "Boulder", type: "QE", gym: "Alpine Climbing Adventure Fitness", location: "Ripon, CA", lat: 37.7397, lng: -121.1278, infoUrl: "" },
+            { date: "12/13/26", discipline: "Lead/TR", type: "QE", gym: "Movement San Francisco", location: "San Francisco, CA", lat: 37.8016, lng: -122.4601, infoUrl: "" },
+            { date: "12/19/26", discipline: "Boulder", type: "QE", gym: "The Oaks", location: "Loomis, CA", lat: 38.8249, lng: -121.1925, infoUrl: "" },
+            { date: "1/17/27", discipline: "Boulder", type: "QE", gym: "California Climbing Collective", location: "CA", lat: 38.1517, lng: -120.7301, infoUrl: "" },
+            { date: "1/30/27", discipline: "Boulder", type: "QE", gym: "Nova Boulders", location: "Reno, NV", lat: 39.5296, lng: -119.8138, infoUrl: "" },
+            { date: "2/6/27", discipline: "Boulder", type: "QE", gym: "Aisle 19", location: "Chico, CA", lat: 39.7285, lng: -121.8375, infoUrl: "" },
+            { date: "2/13/27", discipline: "Lead/TR", type: "QE", gym: "The Studio Climbing", location: "San Jose, CA", lat: 37.3323, lng: -121.8906, infoUrl: "" },
+            // Championships (same official sheet)
+            { date: "3/6/27", discipline: "Boulder", type: "Regional Championship", gym: "Nova Boulders", location: "Reno, NV", lat: 39.5296, lng: -119.8138, infoUrl: "" },
+            { date: "4/3/27", dateLabel: "4/3 – 4/4/27", discipline: "Boulder", type: "Divisional Championship", gym: "Host TBA", location: "Division 2 — location not announced", lat: null, lng: null, infoUrl: "" },
+            { date: "5/1/27", discipline: "Lead/TR", type: "Regional Championship", gym: "High Altitude Fitness", location: "11798 Donner Pass Rd, Truckee, CA", lat: 39.3272, lng: -120.2040, infoUrl: "" },
+            { date: "6/5/27", dateLabel: "6/5 – 6/6/27", discipline: "Lead/TR", type: "Divisional Championship", gym: "Mesa Rim Reno", location: "970 Harvard Way, Reno, NV", lat: 39.4990, lng: -119.7880, infoUrl: "" }
+        ];
+
+        // Home / start point
+        const HOME = { name: 'Home', location: 'Capitola, CA', lat: 36.9752, lng: -121.9533 };
+
+        // Hover cards only on devices with a real pointer; touch devices use tap-to-open
+        const CAN_HOVER = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+
+        // 2. Date + distance helpers
+        const DAY_MS = 86400000;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        document.getElementById('today-label').textContent =
+            'Today: ' + today.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+        function parseDate(str) {
+            const [m, d, y] = str.split('/').map(Number);
+            return new Date(2000 + y, m - 1, d);
+        }
+        function haversineMiles(lat1, lng1, lat2, lng2) {
+            const R = 3958.8, toRad = Math.PI / 180;
+            const dLat = (lat2 - lat1) * toRad, dLng = (lng2 - lng1) * toRad;
+            const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.sin(dLng / 2) ** 2;
+            return 2 * R * Math.asin(Math.sqrt(a));
+        }
+        function relativeLabel(days) {
+            if (days < 0) return `${-days} day${days === -1 ? '' : 's'} ago`;
+            if (days === 0) return 'Today';
+            if (days === 1) return 'Tomorrow';
+            if (days < 14) return `In ${days} days`;
+            return `In ${Math.round(days / 7)} weeks`;
+        }
+
+        // Nudge markers that share identical coordinates so each stays hoverable
+        const seenCoords = {};
+        eventsData.forEach(e => {
+            e.hasLocation = e.lat != null && e.lng != null;
+            if (!e.hasLocation) return;
+            const key = `${e.lat},${e.lng}`;
+            const n = seenCoords[key] = (seenCoords[key] || 0) + 1;
+            e.mapLat = e.lat + (n - 1) * 0.012;
+            e.mapLng = e.lng + (n - 1) * 0.02;
+        });
+
+        // Enrich events
+        eventsData.forEach(e => {
+            e.dateObj = parseDate(e.date);
+            e.daysAway = Math.round((e.dateObj - today) / DAY_MS);
+            e.isPast = e.daysAway <= 0; // behind us OR happening today
+            e.isChamp = e.type !== 'QE';
+            e.miles = e.hasLocation ? haversineMiles(HOME.lat, HOME.lng, e.lat, e.lng) : null;
+            e.prettyDate = e.dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+            e.shortDate = e.dateLabel || e.date;
+        });
+
+        // 3. Green (soonest) -> Red (farthest) gradient across upcoming events
+        const upcoming = eventsData.filter(e => !e.isPast);
+        const minDays = Math.min(...upcoming.map(e => e.daysAway));
+        const maxDays = Math.max(...upcoming.map(e => e.daysAway));
+        const PAST_COLOR = '#475569';
+        eventsData.forEach(e => {
+            if (e.isPast) { e.color = PAST_COLOR; return; }
+            const t = maxDays === minDays ? 0 : (e.daysAway - minDays) / (maxDays - minDays);
+            const hue = 120 * (1 - t); // 120 = green, 0 = red
+            e.color = `hsl(${hue.toFixed(0)}, 80%, ${t > 0.5 ? 55 : 50}%)`;
+        });
+
+        // 4. Initialize Map (Centered on Northern California)
+        const map = L.map('map', {
+            zoomControl: false
+        }).setView([38.3, -121.0], 7);
+
+        L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+        // STABLE, FREE, NO-API-KEY BASEMAP: Esri Dark Gray Canvas
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ · Borders: US Census via us-atlas',
+            maxZoom: 16
+        }).addTo(map);
+
+        // 5. USAC region borders — crisp SVG vectors built from US county shapes.
+        //    California split uses the official county lists from the USAC Region 31/32 pages.
+        //    Nevada north/south split follows the USAC regions map (Clark, Lincoln, Nye,
+        //    Esmeralda, Mineral = southern NV / Region 31; the rest = Region 21).
+        const regionsPane = map.createPane('regions');
+        regionsPane.style.zIndex = 350;            // above tiles, below markers
+        regionsPane.style.pointerEvents = 'none';
+
+        const R31_CA = new Set(['06027', '06029', '06031', '06037', '06059', '06079', '06083', '06107', '06111']); // Inyo, Kern, Kings, LA, Orange, SLO, Santa Barbara, Tulare, Ventura
+        const R32_CA = new Set(['06025', '06065', '06071', '06073']); // Imperial, Riverside, San Bernardino, San Diego
+        const R31_NV = new Set(['32003', '32009', '32017', '32021', '32023']); // Clark, Esmeralda, Lincoln, Mineral, Nye
+        function regionOf(fips) {
+            const st = String(fips).padStart(5, '0').slice(0, 2);
+            const id = String(fips).padStart(5, '0');
+            if (st === '06') return R31_CA.has(id) ? '31' : R32_CA.has(id) ? '32' : '21';
+            if (st === '32') return R31_NV.has(id) ? '31' : '21';
+            if (st === '04') return '32';   // Arizona
+            if (st === '41') return '12';   // Oregon
+            return 'other';
+        }
+
+        const regionsLayer = L.layerGroup();
+        let regionOpacity = 0.85;
+        const regionStyles = [];  // [{layer, base}] so opacity slider can rescale everything
+
+        function addLines(geom, style) {
+            const layer = L.geoJSON(geom, { pane: 'regions', interactive: false, smoothFactor: 0.5, style: () => style });
+            regionStyles.push({ layer, base: style.opacity });
+            layer.setStyle({ opacity: style.opacity * regionOpacity });
+            regionsLayer.addLayer(layer);
+        }
+        function addLabel(latlng, text, primary) {
+            regionsLayer.addLayer(L.marker(latlng, {
+                pane: 'regions', interactive: false, keyboard: false,
+                icon: L.divIcon({ className: 'region-label' + (primary ? ' primary' : ''), html: `<span style="opacity:${regionOpacity}">${text}</span>`, iconSize: [0, 0] })
+            }));
+        }
+
+        const statusEl = document.getElementById('regions-status');
+        fetch('https://cdn.jsdelivr.net/npm/us-atlas@3/counties-10m.json')
+            .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+            .then(us => {
+                const counties = us.objects.counties;
+                const is21 = f => regionOf(f.id) === '21';
+
+                // State lines (subtle)
+                addLines(topojson.mesh(us, us.objects.states, (a, b) => a !== b),
+                         { color: '#ffffff', weight: 1, opacity: 0.35 });
+
+                // Region 31 / 32 split (CA + AZ + southern NV)
+                addLines(topojson.mesh(us, counties, (a, b) => {
+                    const ra = regionOf(a.id), rb = regionOf(b.id);
+                    return a !== b && ((ra === '31' && rb === '32') || (ra === '32' && rb === '31'));
+                }), { color: '#ffffff', weight: 1.5, opacity: 0.6, dashArray: '6 5' });
+
+                // Region 21 outline — soft glow + crisp line
+                const r21 = topojson.mesh(us, counties, (a, b) => a === b ? is21(a) : is21(a) !== is21(b));
+                addLines(r21, { color: '#ffffff', weight: 7, opacity: 0.12, lineJoin: 'round' });
+                addLines(r21, { color: '#ffffff', weight: 2.5, opacity: 1, lineJoin: 'round' });
+
+                addLabel([40.9, -121.6], 'REGION 21', true);
+                addLabel([40.4, -117.2], 'R21', false);
+                addLabel([35.6, -118.9], 'R31', false);
+                addLabel([34.3, -116.2], 'R32', false);
+                addLabel([43.2, -120.5], 'R12', false);
+                addLabel([42.8, -114.6], 'R22', false);
+
+                if (document.getElementById('show-regions').checked) regionsLayer.addTo(map);
+            })
+            .catch(() => {
+                statusEl.textContent = 'Could not load region borders (offline?). Everything else still works.';
+                statusEl.classList.remove('hidden');
+            });
+
+        // 6. Home pin (Capitola, CA)
+        const homeIcon = L.divIcon({
+            className: 'home-pin',
+            html: `<div class="bubble">
+                     <svg width="18" height="18" viewBox="0 0 24 24" fill="#f59e0b" xmlns="http://www.w3.org/2000/svg">
+                       <path d="M12 3 2 12h3v8h5v-5h4v5h5v-8h3L12 3z"/>
+                     </svg>
+                   </div>`,
+            iconSize: [34, 34],
+            iconAnchor: [17, 17],
+            popupAnchor: [0, -18]
+        });
+        L.marker([HOME.lat, HOME.lng], { icon: homeIcon, zIndexOffset: 1000, title: 'Home – Capitola, CA' })
+            .addTo(map)
+            .bindPopup(`<div class="font-sans"><div class="text-xs font-bold uppercase tracking-wider text-amber-400 mb-1">Home / Start</div>
+                        <div class="text-base font-bold text-white">Capitola, CA</div></div>`);
+
+        // Distance ring (only visible when the distance filter is active)
+        const distanceRing = L.circle([HOME.lat, HOME.lng], {
+            radius: 1, color: '#f59e0b', weight: 1.5, dashArray: '6 6', fill: false, interactive: false
+        });
+
+        // 7. Markers, hover cards, sidebar cards
+        const eventListContainer = document.getElementById('event-list');
+
+        function typeBadge(e) {
+            if (!e.isChamp) return '';
+            return `<span class="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-400/15 text-amber-300 border border-amber-400/40">${e.type}</span>`;
+        }
+
+        function popupHtml(e) {
+            const status = e.isPast
+                ? `<span class="text-slate-400">${e.daysAway === 0 ? 'Happening today' : 'Already happened'}</span>`
+                : `<span style="color:${e.color}">${relativeLabel(e.daysAway)}</span>`;
+            const link = e.infoUrl
+                ? `<a href="${e.infoUrl}" target="_blank" rel="noopener"
+                      class="inline-flex items-center gap-1 text-xs font-semibold !text-sky-300 hover:!text-sky-200 underline underline-offset-2">
+                      Official USAC info sheet ↗</a>`
+                : `<a href="${REGION_PAGE_URL}" target="_blank" rel="noopener"
+                      class="inline-flex items-center gap-1 text-xs font-semibold !text-sky-300 hover:!text-sky-200 underline underline-offset-2">
+                      Region 21 page ↗</a>
+                   <div class="text-[11px] text-slate-500 mt-0.5">Info sheet not posted yet</div>`;
+            return `
+                <div class="font-sans min-w-[240px] max-w-[280px]">
+                    <div class="flex items-center justify-between gap-3 mb-1">
+                        <div style="color:${e.isPast ? '#94a3b8' : e.color}" class="text-xs font-bold uppercase tracking-wider">${e.prettyDate}${e.dateLabel ? ' (2 days)' : ''}</div>
+                        <span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-900 text-slate-300 border border-slate-700">${e.discipline}</span>
+                    </div>
+                    ${e.isChamp ? `<div class="mb-1">${typeBadge(e)}</div>` : ''}
+                    <h3 class="text-base font-bold text-white leading-tight">${e.gym}</h3>
+                    <p class="text-xs text-slate-400 mb-1">${e.location}</p>
+                    <p class="text-xs text-slate-400 mb-2">${e.miles != null ? Math.round(e.miles) + ' mi from home · ' : ''}${status}</p>
+                    ${e.reg ? `<p class="text-[11px] text-slate-300 bg-slate-900/70 border border-slate-700 rounded px-2 py-1 mb-2">${e.reg}</p>` : ''}
+                    ${link}
+                </div>`;
+        }
+
+        // Draw past events first so upcoming markers sit on top
+        const drawOrder = eventsData.filter(e => e.hasLocation)
+            .sort((a, b) => (b.isPast - a.isPast) || (b.daysAway - a.daysAway));
+        drawOrder.forEach(e => {
+            e.marker = L.circleMarker([e.mapLat, e.mapLng], {
+                radius: e.isPast ? 6 : (e.isChamp ? 10 : 8),
+                fillColor: e.color,
+                color: e.isPast ? '#94a3b8' : (e.isChamp ? '#fcd34d' : '#ffffff'),
+                weight: e.isChamp && !e.isPast ? 3 : 2,
+                opacity: e.isPast ? 0.6 : 1,
+                fillOpacity: e.isPast ? 0.5 : 0.95
+            });
+            e.baseWeight = e.isChamp && !e.isPast ? 3 : 2;
+            e.marker.bindPopup(popupHtml(e), { closeButton: false, autoPan: false, offset: [0, -4] });
+
+            // Hover-to-open card that stays open while the cursor is on it (so the link is clickable)
+            let closeTimer = null;
+            const scheduleClose = () => { clearTimeout(closeTimer); closeTimer = setTimeout(() => e.marker.closePopup(), 250); };
+            const cancelClose = () => { clearTimeout(closeTimer); };
+            e.marker.on('mouseover', () => { if (!CAN_HOVER) return; cancelClose(); e.marker.openPopup(); });
+            e.marker.on('mouseout', () => { if (CAN_HOVER) scheduleClose(); });
+            e.marker.on('popupopen', () => {
+                const el = e.marker.getPopup().getElement();
+                if (el.dataset.hoverBound) return;
+                el.dataset.hoverBound = '1';
+                el.addEventListener('mouseenter', cancelClose);
+                el.addEventListener('mouseleave', scheduleClose);
+            });
+        });
+
+        eventsData.forEach(e => {
+            const card = document.createElement('div');
+            card.className = `group border-l-4 rounded-r-lg p-4 transition-all duration-200 shadow-md ` +
+                (e.hasLocation ? 'cursor-pointer ' : '') +
+                (e.isPast ? 'bg-slate-800/40 hover:bg-slate-800/70 opacity-60' : 'bg-slate-800 hover:bg-slate-700');
+            card.style.borderLeftColor = e.color;
+            card.innerHTML = `
+                <div class="flex justify-between items-start gap-2 mb-2">
+                    <span style="color: ${e.isPast ? '#94a3b8' : e.color}" class="text-xs font-bold tracking-wider">
+                        ${e.shortDate} · ${e.isPast ? (e.daysAway === 0 ? 'Today' : 'Past') : relativeLabel(e.daysAway)}
+                    </span>
+                    <span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-900 text-slate-300 border border-slate-700 whitespace-nowrap">
+                        ${e.discipline}
+                    </span>
+                </div>
+                ${e.isChamp ? `<div class="mb-1.5">${typeBadge(e)}</div>` : ''}
+                <h2 class="text-[15px] font-semibold ${e.isPast ? 'text-slate-400 line-through decoration-slate-600' : 'text-white'} leading-tight">${e.gym}</h2>
+                <div class="flex justify-between items-center mt-1">
+                    <p class="text-xs text-slate-500">${e.location.split(',').slice(-2).join(',').trim()}${e.miles != null ? ' · ' + Math.round(e.miles) + ' mi' : ''}</p>
+                    ${e.infoUrl
+                        ? `<a href="${e.infoUrl}" target="_blank" rel="noopener" class="info-link text-[11px] font-semibold text-sky-300 hover:text-sky-200 underline underline-offset-2 whitespace-nowrap">Info sheet ↗</a>`
+                        : `<a href="${REGION_PAGE_URL}" target="_blank" rel="noopener" class="info-link text-[11px] text-slate-400 hover:text-slate-200 underline underline-offset-2 whitespace-nowrap" title="Info sheet not posted yet">Region 21 page ↗</a>`}
+                </div>
+            `;
+
+            const link = card.querySelector('.info-link');
+            if (link) link.addEventListener('click', ev => ev.stopPropagation());
+
+            if (e.marker) {
+                card.addEventListener('mouseenter', () => e.marker.setStyle({ weight: e.baseWeight + 2 }));
+                card.addEventListener('mouseleave', () => e.marker.setStyle({ weight: e.baseWeight }));
+                card.addEventListener('click', () => {
+                    map.flyTo([e.mapLat, e.mapLng], 11, { animate: true, duration: 1.5 });
+                    map.once('moveend', () => e.marker.openPopup());
+                });
+            }
+
+            e.card = card;
+            eventListContainer.appendChild(card);
+        });
+
+        // 7b. Potential host gyms — Region 21 gyms NOT hosting a 2026-27 Region 21 event.
+        //     walls: "Boulder" | "Ropes" | "Boulder + Ropes"  ·  pastUSAC: hosted USAC youth comps before (true/false/null = unknown)
+        const prospectGyms = [
+  {"name":"Mission Cliffs (Touchstone)","address":"2295 Harrison St, San Francisco, CA","lat":37.7605,"lng":-122.4128,"walls":"Boulder + Ropes","website":"https://touchstoneclimbing.com/mission-cliffs/","pastUSAC":true,"approx":false},
+  {"name":"Dogpatch Boulders (Touchstone)","address":"2573 3rd St, San Francisco, CA","lat":37.7568,"lng":-122.3880,"walls":"Boulder","website":"https://touchstoneclimbing.com/dogpatch-boulders/","pastUSAC":true,"approx":false},
+  {"name":"Benchmark Climbing SF","address":"1414 Van Ness Ave, San Francisco, CA","lat":37.7889,"lng":-122.4220,"walls":"Boulder","website":"https://benchmarkclimbing.com","pastUSAC":null,"approx":false},
+  {"name":"Benchmark Climbing Berkeley","address":"1607 Shattuck Ave, Berkeley, CA","lat":37.8781,"lng":-122.2690,"walls":"Boulder","website":"https://benchmarkclimbing.com","pastUSAC":null,"approx":false},
+  {"name":"Berkeley Ironworks (Touchstone)","address":"800 Potter St, Berkeley, CA","lat":37.8508,"lng":-122.2908,"walls":"Boulder + Ropes","website":"https://touchstoneclimbing.com/ironworks/","pastUSAC":true,"approx":false},
+  {"name":"Great Western Power Co. (Touchstone)","address":"520 20th St, Oakland, CA","lat":37.8095,"lng":-122.2685,"walls":"Boulder + Ropes","website":"https://touchstoneclimbing.com/gwpower-co/","pastUSAC":true,"approx":false},
+  {"name":"Pacific Pipe (Touchstone)","address":"2140 Mandela Pkwy, Oakland, CA","lat":37.8150,"lng":-122.2880,"walls":"Boulder + Ropes","website":"https://touchstoneclimbing.com/pacific-pipe/","pastUSAC":null,"approx":true},
+  {"name":"Oaktown Boulders","address":"3400 International Blvd, Oakland, CA","lat":37.7790,"lng":-122.2260,"walls":"Boulder","website":"https://oaktownboulders.com","pastUSAC":null,"approx":true,"note":"Youth-only facility (not open to the public); runs a youth comp team."},
+  {"name":"Bridges Rock Gym","address":"5635 San Diego St, El Cerrito, CA","lat":37.8990,"lng":-122.3020,"walls":"Boulder","website":"https://www.bridgesrockgym.com","pastUSAC":null,"approx":true},
+  {"name":"Diablo Rock Gym (Touchstone)","address":"1220 Diamond Way #140, Concord, CA","lat":37.9705,"lng":-122.0560,"walls":"Boulder + Ropes","website":"https://touchstoneclimbing.com/diablo-rock-gym/","pastUSAC":true,"approx":true},
+  {"name":"The Peak of Fremont","address":"4020 Technology Pl, Fremont, CA","lat":37.5030,"lng":-121.9690,"walls":"Boulder + Ropes","website":"https://thepeakoffremont.com","pastUSAC":null,"approx":true,"note":"Could only confirm via directories — verify it's open."},
+  {"name":"Hyperion (Touchstone)","address":"Redwood City, CA","lat":37.4780,"lng":-122.2140,"walls":"Boulder","website":"https://touchstoneclimbing.com/hyperion/","pastUSAC":false,"approx":true,"note":"Newer bouldering gym; exact address unconfirmed."},
+  {"name":"Movement Mountain View","address":"630 San Antonio Rd, Mountain View, CA","lat":37.4035,"lng":-122.1125,"walls":"Boulder","website":"https://movementgyms.com/mountain-view/","pastUSAC":false,"approx":false},
+  {"name":"Movement Sunnyvale","address":"815 Stewart Dr, Sunnyvale, CA","lat":37.3848,"lng":-122.0083,"walls":"Boulder + Ropes","website":"https://movementgyms.com/sunnyvale/","pastUSAC":true,"approx":false},
+  {"name":"Movement Santa Clara","address":"Santa Clara, CA","lat":37.3605,"lng":-121.9435,"walls":"Boulder","website":"https://movementgyms.com/santa-clara/","pastUSAC":true,"approx":true,"note":"Location/format may have changed (former Planet Granite rope gym on Mead Ave)."},
+  {"name":"Pacific Edge Climbing Gym","address":"104 Bronson St #12, Santa Cruz, CA","lat":36.9690,"lng":-122.0090,"walls":"Boulder + Ropes","website":"https://pacificedgeclimbinggym.com","pastUSAC":true,"approx":false},
+  {"name":"Agility Boulders","address":"1404 38th Ave, Capitola, CA","lat":36.9785,"lng":-121.9640,"walls":"Boulder","website":"https://agilityboulders.com","pastUSAC":null,"approx":true},
+  {"name":"Sanctuary Rock Gym","address":"1760 Fremont Blvd #D2, Seaside, CA","lat":36.6100,"lng":-121.8450,"walls":"Boulder + Ropes","website":"https://rockgym.com","pastUSAC":true,"approx":true,"note":"Relocated from Sand City to Seaside."},
+  {"name":"The Gravity Vault San Rafael","address":"440 Smith Ranch Rd, San Rafael, CA","lat":38.0130,"lng":-122.5375,"walls":"Boulder + Ropes","website":"https://gravityvault.com/san-rafael/","pastUSAC":null,"approx":true},
+  {"name":"Rockzilla","address":"849 Jackson St #5A, Napa, CA","lat":38.3100,"lng":-122.2800,"walls":"Boulder + Ropes","website":"https://climbrockzilla.rocks","pastUSAC":null,"approx":true,"note":"Rope walls unconfirmed."},
+  {"name":"Vertex Climbing Center","address":"3358a Coffey Ln, Santa Rosa, CA","lat":38.4710,"lng":-122.7360,"walls":"Boulder + Ropes","website":"https://climbvertex.com","pastUSAC":true,"approx":true},
+  {"name":"Rocknasium","address":"720 Olive Dr Suite S, Davis, CA","lat":38.5420,"lng":-121.7340,"walls":"Boulder + Ropes","website":"https://rocknasium.com","pastUSAC":null,"approx":false},
+  {"name":"The Stack Climbing + Fitness (Davis)","address":"607 Pena Dr, Davis, CA","lat":38.5530,"lng":-121.7050,"walls":"Boulder","website":"https://thestackdavis.com","pastUSAC":false,"approx":true},
+  {"name":"Sacramento Pipeworks (Touchstone)","address":"116 N 16th St, Sacramento, CA","lat":38.5855,"lng":-121.4810,"walls":"Boulder + Ropes","website":"https://touchstoneclimbing.com/sacramento-pipeworks/","pastUSAC":true,"approx":false},
+  {"name":"The Boulder Field","address":"8425 Belvedere Ave Suite 100, Sacramento, CA","lat":38.5390,"lng":-121.4045,"walls":"Boulder","website":"https://theboulderfield.com","pastUSAC":true,"approx":true},
+  {"name":"The Stack Climbing + Fitness (Chico)","address":"1935 Market Place, Chico, CA","lat":39.7380,"lng":-121.8070,"walls":"Boulder + Ropes","website":"https://thestackclimbing.com","pastUSAC":false,"approx":true},
+  {"name":"Terrain Park Climbing Center","address":"931 W 5th St Suite 100, Chico, CA","lat":39.7290,"lng":-121.8460,"walls":"Boulder + Ropes","website":"https://terrainparkclimbingcenter.com","pastUSAC":null,"approx":true,"note":"Family/auto-belay focused — may not be comp-grade."},
+  {"name":"Gold Crush Climbing","address":"416 Crown Point Cir Unit 5, Grass Valley, CA","lat":39.2240,"lng":-121.0420,"walls":"Boulder","website":"https://goldcrushclimbing.com","pastUSAC":null,"approx":true},
+  {"name":"Shasta Rock Club","address":"2325 Athens Ave, Redding, CA","lat":40.5640,"lng":-122.3590,"walls":"Boulder","website":"https://shastarockclub.com","pastUSAC":null,"approx":true},
+  {"name":"Far North Climbing Gym","address":"1065 K St Suite C, Arcata, CA","lat":40.8710,"lng":-124.0830,"walls":"Boulder + Ropes","website":"https://climbfarnorth.com","pastUSAC":null,"approx":true},
+  {"name":"Metalmark Climbing + Fitness (Touchstone)","address":"4042 N Cedar Ave, Fresno, CA","lat":36.7920,"lng":-119.7540,"walls":"Boulder + Ropes","website":"https://touchstoneclimbing.com/metalmark/","pastUSAC":true,"approx":false},
+  {"name":"BaseCamp Climbing Gym (Whitney Peak Hotel)","address":"255 N Virginia St, Reno, NV","lat":39.5275,"lng":-119.8135,"walls":"Boulder","website":"https://basecampreno.com","pastUSAC":true,"approx":false},
+  {"name":"The Block Climbing & Fitness","address":"903 E 4th St Suite 125, Reno, NV","lat":39.5320,"lng":-119.8000,"walls":"Boulder","website":"https://theblockclimbing.com","pastUSAC":null,"approx":true},
+  {"name":"North Peak Climbing & Fitness","address":"1901 Silverada Blvd, Reno, NV","lat":39.5480,"lng":-119.7900,"walls":"Boulder + Ropes","website":"https://northpeakclimbing.com","pastUSAC":null,"approx":true,"note":"Rope walls unconfirmed."},
+  {"name":"High Altitude Fitness – Incline Village","address":"880 Northwood Blvd, Incline Village, NV","lat":39.2470,"lng":-119.9550,"walls":"Boulder + Ropes","website":"https://highaltitudefit.net","pastUSAC":null,"approx":true}
+];
+
+        const gymsPane = map.createPane('gyms');
+        gymsPane.style.zIndex = 390; // below event pins (overlayPane = 400), above region borders
+
+        const gymIcon = L.divIcon({
+            className: 'gym-pin',
+            html: `<div class="gym-badge">
+                     <svg width="13" height="13" viewBox="0 0 24 24" fill="#22d3ee" xmlns="http://www.w3.org/2000/svg">
+                       <path d="M7.5 4.5c2.6-1.9 6.6-1.6 9.4.4 2.9 2.1 4.3 5.6 3 8.8-1.1 2.8-3.5 3.3-5.4 4.9-1.8 1.6-2.6 3.9-5.3 3.9-3.3 0-6-2.9-6.6-6.6-.6-4 1.9-9.5 4.9-11.4z"/>
+                       <circle cx="11" cy="11" r="2.2" fill="#0f172a"/>
+                     </svg>
+                   </div>`,
+            iconSize: [22, 22],
+            iconAnchor: [11, 11],
+            popupAnchor: [0, -12]
+        });
+
+        function gymPopupHtml(g) {
+            const past = g.pastUSAC === true
+                ? '<span class="text-amber-300">Reportedly hosted USAC youth comps before</span>'
+                : 'No 2026-27 Region 21 event';
+            return `
+                <div class="font-sans min-w-[220px] max-w-[270px]">
+                    <div class="flex items-center justify-between gap-3 mb-1">
+                        <div class="text-xs font-bold uppercase tracking-wider text-cyan-300">Potential host</div>
+                        <span class="text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-900 text-slate-300 border border-slate-700 whitespace-nowrap">${g.walls}</span>
+                    </div>
+                    <h3 class="text-base font-bold text-white leading-tight">${g.name}</h3>
+                    <p class="text-xs text-slate-400">${g.address}${g.approx ? ' <span class="text-slate-500">(pin approx.)</span>' : ''}</p>
+                    <p class="text-xs text-slate-400 mb-2">${Math.round(g.miles)} mi from home · ${past}</p>
+                    ${g.note ? `<p class="text-[11px] text-slate-300 bg-slate-900/70 border border-slate-700 rounded px-2 py-1 mb-2">${g.note}</p>` : ''}
+                    ${g.website ? `<a href="${g.website}" target="_blank" rel="noopener"
+                        class="text-xs font-semibold !text-cyan-300 hover:!text-cyan-200 underline underline-offset-2">Gym website ↗</a>` : ''}
+                </div>`;
+        }
+
+        prospectGyms.forEach(g => {
+            g.miles = haversineMiles(HOME.lat, HOME.lng, g.lat, g.lng);
+            g.marker = L.marker([g.lat, g.lng], { icon: gymIcon, pane: 'gyms', title: g.name, riseOnHover: true });
+            g.marker.bindPopup(gymPopupHtml(g), { closeButton: false, autoPan: false });
+            let t = null;
+            const close = () => { clearTimeout(t); t = setTimeout(() => g.marker.closePopup(), 250); };
+            const keep = () => clearTimeout(t);
+            g.marker.on('mouseover', () => { if (!CAN_HOVER) return; keep(); g.marker.openPopup(); });
+            g.marker.on('mouseout', () => { if (CAN_HOVER) close(); });
+            g.marker.on('popupopen', () => {
+                const el = g.marker.getPopup().getElement();
+                if (el.dataset.hoverBound) return;
+                el.dataset.hoverBound = '1';
+                el.addEventListener('mouseenter', keep);
+                el.addEventListener('mouseleave', close);
+            });
+        });
+        document.getElementById('gym-count').textContent = prospectGyms.length;
+
+        // 8. Filters
+        const DIST_MAX = 300, TIME_MAX = 240;
+        const state = { discipline: 'all', maxMiles: DIST_MAX, maxDays: TIME_MAX, showPast: true, showGyms: true };
+
+        const distInput = document.getElementById('distance-filter');
+        const timeInput = document.getElementById('time-filter');
+        const pastInput = document.getElementById('show-past');
+        const discButtons = document.querySelectorAll('.disc-btn');
+
+        function applyFilters() {
+            document.getElementById('distance-label').textContent =
+                state.maxMiles >= DIST_MAX ? 'Any' : `≤ ${state.maxMiles} mi`;
+            document.getElementById('time-label').textContent =
+                state.maxDays >= TIME_MAX ? 'Any time' : `${state.maxDays} days`;
+
+            discButtons.forEach(btn => {
+                const active = btn.dataset.value === state.discipline;
+                btn.className = 'disc-btn rounded-md py-1.5 text-xs font-semibold transition-colors ' +
+                    (active ? 'bg-slate-100 text-slate-900' : 'text-slate-400 hover:text-white hover:bg-slate-800');
+            });
+
+            let shown = 0;
+            eventsData.forEach(e => {
+                const okDisc = state.discipline === 'all' || e.discipline === state.discipline;
+                const okDist = state.maxMiles >= DIST_MAX || (e.miles != null && e.miles <= state.maxMiles);
+                const okTime = e.isPast ? state.showPast : (state.maxDays >= TIME_MAX || e.daysAway <= state.maxDays);
+                const visible = okDisc && okDist && okTime;
+                e.card.style.display = visible ? '' : 'none';
+                if (e.marker) {
+                    if (visible && !map.hasLayer(e.marker)) e.marker.addTo(map);
+                    if (!visible && map.hasLayer(e.marker)) map.removeLayer(e.marker);
+                }
+                if (visible && !e.isPast) shown++;
+            });
+
+            // Keep upcoming markers above past ones after re-adding
+            eventsData.filter(e => e.marker && !e.isPast && map.hasLayer(e.marker)).forEach(e => e.marker.bringToFront());
+
+            // Potential host gyms: distance filter + wall type (Boulder filter -> has bouldering, Lead filter -> has ropes)
+            let gymsShown = 0;
+            prospectGyms.forEach(g => {
+                const okWalls = state.discipline === 'all'
+                    || (state.discipline === 'Boulder' && /Boulder/.test(g.walls))
+                    || (state.discipline === 'Lead/TR' && /Ropes/.test(g.walls));
+                const okDist = state.maxMiles >= DIST_MAX || g.miles <= state.maxMiles;
+                const visible = state.showGyms && okWalls && okDist;
+                if (visible && !map.hasLayer(g.marker)) g.marker.addTo(map);
+                if (!visible && map.hasLayer(g.marker)) map.removeLayer(g.marker);
+                if (visible) gymsShown++;
+            });
+
+            if (state.maxMiles < DIST_MAX) {
+                distanceRing.setRadius(state.maxMiles * 1609.34);
+                if (!map.hasLayer(distanceRing)) distanceRing.addTo(map);
+            } else if (map.hasLayer(distanceRing)) {
+                map.removeLayer(distanceRing);
+            }
+
+            document.getElementById('result-count').textContent =
+                `${shown} upcoming event${shown === 1 ? '' : 's'} · ${gymsShown} gym${gymsShown === 1 ? '' : 's'} shown`;
+        }
+
+        discButtons.forEach(btn => btn.addEventListener('click', () => { state.discipline = btn.dataset.value; applyFilters(); }));
+        distInput.addEventListener('input', () => { state.maxMiles = +distInput.value; applyFilters(); });
+        timeInput.addEventListener('input', () => { state.maxDays = +timeInput.value; applyFilters(); });
+        pastInput.addEventListener('change', () => { state.showPast = pastInput.checked; applyFilters(); });
+        const gymsInput = document.getElementById('show-gyms');
+        gymsInput.addEventListener('change', () => { state.showGyms = gymsInput.checked; applyFilters(); });
+        document.getElementById('reset-filters').addEventListener('click', () => {
+            Object.assign(state, { discipline: 'all', maxMiles: DIST_MAX, maxDays: TIME_MAX, showPast: true, showGyms: true });
+            distInput.value = DIST_MAX; timeInput.value = TIME_MAX; pastInput.checked = true; gymsInput.checked = true;
+            applyFilters();
+        });
+
+        // Region border controls
+        const regionsToggle = document.getElementById('show-regions');
+        const regionsOpacityInput = document.getElementById('regions-opacity');
+        regionsToggle.addEventListener('change', () => {
+            regionsToggle.checked ? regionsLayer.addTo(map) : map.removeLayer(regionsLayer);
+        });
+        regionsOpacityInput.addEventListener('input', () => {
+            regionOpacity = +regionsOpacityInput.value;
+            regionStyles.forEach(({ layer, base }) => layer.setStyle({ opacity: base * regionOpacity }));
+            document.querySelectorAll('.region-label span').forEach(el => el.style.opacity = regionOpacity);
+        });
+
+        applyFilters();
+    </script>
+</body>
+</html>
